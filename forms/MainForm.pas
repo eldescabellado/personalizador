@@ -11,7 +11,6 @@ uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants,
   System.Classes, Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs,
   Vcl.ComCtrls, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.Grids, System.DateUtils,
-  System.StrUtils, System.TypInfo, Vcl.FileCtrl,
   LG.LicenseData, LG.LicenseGenerator, LG.DataManager, LG.HardwareInfo;
 
 type
@@ -145,7 +144,8 @@ implementation
 {$R *.dfm}
 
 uses
-  System.IOUtils, System.IniFiles, Winapi.ShellAPI;
+  System.IOUtils, System.IniFiles, Winapi.ShellAPI, System.StrUtils,
+  System.TypInfo, Vcl.FileCtrl;
 
 procedure TFormMain.FormCreate(Sender: TObject);
 begin
