@@ -264,7 +264,10 @@ begin
     Item.SubItems.Add(Dist.SerialNumber);
     Item.SubItems.Add(Dist.ContactEmail);
     Item.SubItems.Add(Dist.ContactPhone);
-    Item.SubItems.Add(IfThen(Dist.Active, 'Yes', 'No'));
+    if Dist.Active then
+      Item.SubItems.Add('Yes')
+    else
+      Item.SubItems.Add('No');
   end;
 end;
 
@@ -273,6 +276,7 @@ var
   Records: TArray<TLicenseRecord>;
   Rec: TLicenseRecord;
   Item: TListItem;
+  LicenseTypeStr: string;
 begin
   lvLicenseHistory.Items.Clear;
 
@@ -285,7 +289,16 @@ begin
     Item.SubItems.Add(Rec.ApplicationName);
     Item.SubItems.Add(Rec.DistributorName);
     Item.SubItems.Add(DateTimeToStr(Rec.CreatedDate));
-    Item.SubItems.Add(GetEnumName(TypeInfo(TLicenseType), Ord(Rec.LicenseType)));
+
+    // Convertir tipo de licencia a string
+    case Rec.LicenseType of
+      ltFull: LicenseTypeStr := 'Full';
+      ltDemo: LicenseTypeStr := 'Demo';
+      ltTrial: LicenseTypeStr := 'Trial';
+    else
+      LicenseTypeStr := 'Unknown';
+    end;
+    Item.SubItems.Add(LicenseTypeStr);
   end;
 end;
 

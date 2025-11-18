@@ -321,7 +321,39 @@ begin
 end;
 
 function TLicenseValidator.GetLicenseInfo: string;
+var
+  LicenseTypeStr: string;
+  ExpiresStr: string;
+  HardwareBindingStr: string;
+  StatusStr: string;
 begin
+  // Determinar tipo de licencia
+  case FLicenseData.LicenseType of
+    ltFull: LicenseTypeStr := 'Full';
+    ltDemo: LicenseTypeStr := 'Demo';
+    ltTrial: LicenseTypeStr := 'Trial';
+  else
+    LicenseTypeStr := 'Unknown';
+  end;
+
+  // Determinar fecha de expiración
+  if FLicenseData.Expiration.HasExpiration then
+    ExpiresStr := DateToStr(FLicenseData.Expiration.ExpirationDate)
+  else
+    ExpiresStr := 'Never';
+
+  // Determinar vinculación de hardware
+  if FLicenseData.HardwareBinding.Enabled then
+    HardwareBindingStr := FLicenseData.HardwareBinding.BindingType
+  else
+    HardwareBindingStr := 'None';
+
+  // Determinar estado
+  if FValidationResult.IsValid then
+    StatusStr := 'VALID'
+  else
+    StatusStr := 'INVALID';
+
   Result := Format(
     'License Information:' + sLineBreak +
     '===================' + sLineBreak +
@@ -337,18 +369,16 @@ begin
     'Status: %s',
     [
       FLicenseData.LicenseSerial,
-      GetEnumName(TypeInfo(TLicenseType), Ord(FLicenseData.LicenseType)),
+      LicenseTypeStr,
       FLicenseData.ClientName,
       FLicenseData.ClientCompany,
       FLicenseData.ApplicationName,
       FLicenseData.DistributorName,
       FLicenseData.DistributorSerial,
       DateTimeToStr(FLicenseData.CreatedDate),
-      IfThen(FLicenseData.Expiration.HasExpiration,
-        DateToStr(FLicenseData.Expiration.ExpirationDate), 'Never'),
-      IfThen(FLicenseData.HardwareBinding.Enabled,
-        FLicenseData.HardwareBinding.BindingType, 'None'),
-      IfThen(FValidationResult.IsValid, 'VALID', 'INVALID')
+      ExpiresStr,
+      HardwareBindingStr,
+      StatusStr
     ]);
 end;
 
