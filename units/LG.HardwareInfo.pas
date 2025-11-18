@@ -3,6 +3,15 @@ unit LG.HardwareInfo;
 {
   LicenseGuard - Hardware Information
   Retrieves hardware identifiers for license binding
+
+  NOTE: GetMACAddress uses a simplified placeholder implementation.
+  For production use, implement actual MAC address retrieval using:
+  - GetAdaptersInfo from iphlpapi.dll
+  - WMI queries (Win32_NetworkAdapter)
+  - Third-party components
+
+  Current implementation generates pseudo-unique identifiers suitable for
+  demonstration and testing purposes.
 }
 
 interface
@@ -40,21 +49,15 @@ uses
 
 class function THardwareInfo.GetMACAddress: string;
 {$IFDEF MSWINDOWS}
-var
-  NCB: PNCB;
-  Adapter: TADAPTERSTATUS;
-  LANAEnum: TLANAENUM;
-  I: Integer;
-  Ret: Char;
 begin
   Result := '';
   try
     // This is a simplified implementation
     // For production, use a more robust method to get MAC address
-    // Consider using GetAdaptersInfo from iphlpapi.dll
+    // Consider using GetAdaptersInfo from iphlpapi.dll or WMI
 
-    // Placeholder implementation
-    Result := 'MAC-PLACEHOLDER-' + IntToHex(GetTickCount, 8);
+    // Placeholder implementation - generates a pseudo-unique identifier
+    Result := 'MAC-' + IntToHex(GetTickCount, 8);
   except
     Result := 'MAC-ERROR';
   end;
