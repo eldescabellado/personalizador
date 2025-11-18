@@ -102,6 +102,8 @@ begin
 end;
 
 procedure TLicenseRecord.FromJSON(AJSON: TJSONObject);
+var
+  TempValue: string;
 begin
   LicenseSerial := AJSON.GetValue<string>('LicenseSerial');
   ClientName := AJSON.GetValue<string>('ClientName');
@@ -110,8 +112,8 @@ begin
   DistributorName := AJSON.GetValue<string>('DistributorName');
   CreatedDate := StrToDateTime(AJSON.GetValue<string>('CreatedDate'));
 
-  if AJSON.TryGetValue<string>('ExpirationDate') <> '' then
-    ExpirationDate := StrToDateTime(AJSON.GetValue<string>('ExpirationDate'))
+  if AJSON.TryGetValue<string>('ExpirationDate', TempValue) and (TempValue <> '') then
+    ExpirationDate := StrToDateTime(TempValue)
   else
     ExpirationDate := 0;
 
