@@ -11,6 +11,7 @@ uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants,
   System.Classes, Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs,
   Vcl.ComCtrls, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.Grids, System.DateUtils,
+  System.StrUtils, System.TypInfo, Vcl.FileCtrl,
   LG.LicenseData, LG.LicenseGenerator, LG.DataManager, LG.HardwareInfo;
 
 type
@@ -328,7 +329,7 @@ var
   Versions: TStringList;
   I: Integer;
 begin
-  if edtClientName.Text.Trim.IsEmpty then
+  if Trim(edtClientName.Text) = '' then
   begin
     ShowMessage('Please enter client name');
     Exit;
@@ -364,14 +365,14 @@ begin
     LicenseData.DistributorSerial := Dist.SerialNumber;
 
     // Version tolerance
-    if edtVersions.Text.Trim <> '' then
+    if Trim(edtVersions.Text) <> '' then
     begin
       Versions := TStringList.Create;
       try
         Versions.CommaText := edtVersions.Text;
         SetLength(LicenseData.VersionTolerance.AllowedVersions, Versions.Count);
         for I := 0 to Versions.Count - 1 do
-          LicenseData.VersionTolerance.AllowedVersions[I] := Versions[I].Trim;
+          LicenseData.VersionTolerance.AllowedVersions[I] := Trim(Versions[I]);
         LicenseData.VersionTolerance.AllowAnyVersion := False;
       finally
         Versions.Free;
@@ -442,7 +443,7 @@ var
   OutputPath: string;
 begin
   ClientName := InputBox('Demo License', 'Enter client name:', '');
-  if ClientName.Trim.IsEmpty then
+  if Trim(ClientName) = '' then
     Exit;
 
   if cboApplication.ItemIndex < 0 then
@@ -465,7 +466,7 @@ end;
 
 procedure TFormMain.btnAddApplicationClick(Sender: TObject);
 begin
-  if edtAppName.Text.Trim.IsEmpty then
+  if Trim(edtAppName.Text) = '' then
   begin
     ShowMessage('Please enter application name');
     Exit;
@@ -524,7 +525,7 @@ end;
 
 procedure TFormMain.btnAddDistributorClick(Sender: TObject);
 begin
-  if edtDistName.Text.Trim.IsEmpty then
+  if Trim(edtDistName.Text) = '' then
   begin
     ShowMessage('Please enter distributor name');
     Exit;
