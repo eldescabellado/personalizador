@@ -11,7 +11,8 @@ uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants,
   System.Classes, Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs,
   Vcl.ComCtrls, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.Grids, System.DateUtils,
-  LG.LicenseData, LG.LicenseGenerator, LG.DataManager, LG.HardwareInfo;
+  LG.LicenseData, LG.LicenseGenerator, LG.DataManager, LG.HardwareInfo,
+  LG.Database, LG.DatabaseLogger;
 
 type
   TFormMain = class(TForm)
@@ -119,6 +120,8 @@ type
     procedure btnBrowseOutputClick(Sender: TObject);
 
   private
+    FDatabase: TLGDatabase;
+    FLogger: TLGDatabaseLogger;
     FGenerator: TLicenseGenerator;
     FDataManager: TDataManager;
     FMasterKey: string;
@@ -148,13 +151,35 @@ uses
   System.TypInfo, Vcl.FileCtrl;
 
 procedure TFormMain.FormCreate(Sender: TObject);
+var
+  DBConfig: TDatabaseConfig;
 begin
   FMasterKey := 'DefaultMasterKey-ChangeThis-InProduction';
 
   LoadSettings;
 
+  // Inicializar base de datos
+  FDatabase := TLGDatabase.Create;
+  DBConfig := FDatabase.LoadConfig; // Cargar configuración guardada o usar default
+  try
+    FDatabase.Connect(DBConfig);
+  except
+    on E: Exception do
+    begin
+      ShowMessage('Error al conectar a la base de datos: ' + E.Message);
+      Application.Terminate;
+      Exit;
+    end;
+  end;
+
+  // Inicializar logger
+  FLogger := TLGDatabaseLogger.Create(FDatabase);
+
+  // Inicializar generador y data manager
   FGenerator := TLicenseGenerator.Create(FMasterKey);
-  FDataManager := TDataManager.Create(TPath.Combine(ExtractFilePath(Application.ExeName), 'data'));
+  FDataManager := TDataManager.Create(FDatabase, FLogger);
+
+  FLogger.LogInfo(lcSystem, 'LicenseGuard application started', 'Application startup');
 
   RefreshApplicationsList;
   RefreshDistributorsList;
@@ -173,8 +198,14 @@ end;
 procedure TFormMain.FormDestroy(Sender: TObject);
 begin
   SaveSettings;
+
+  if Assigned(FLogger) then
+    FLogger.LogInfo(lcSystem, 'LicenseGuard application closed', 'Application shutdown');
+
   FGenerator.Free;
   FDataManager.Free;
+  FLogger.Free;
+  FDatabase.Free;
 end;
 
 procedure TFormMain.LoadSettings;
