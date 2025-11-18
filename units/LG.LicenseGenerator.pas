@@ -25,7 +25,7 @@ type
     constructor Create(const AMasterKey: string);
 
     // Generate license file
-    function GenerateLicense(const ALicenseData: TLicenseData;
+    function GenerateLicense(var ALicenseData: TLicenseData;
       const ACompanyName: string): string;
 
     // Generate control file (premium.sis)
@@ -165,7 +165,7 @@ begin
   end;
 end;
 
-function TLicenseGenerator.GenerateLicense(const ALicenseData: TLicenseData;
+function TLicenseGenerator.GenerateLicense(var ALicenseData: TLicenseData;
   const ACompanyName: string): string;
 var
   LicenseJSON: string;

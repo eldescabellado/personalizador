@@ -153,7 +153,7 @@ end;
 class function TLGEncryption.EncryptBytes(const Data: TBytes;
   const Key: TBytes): TBytes;
 var
-  I, J, BlockCount: Integer;
+  I, BlockCount: Integer;
   IV, Block, EncBlock, PrevBlock: TBytes;
   Padding: Byte;
   PaddedData: TBytes;
