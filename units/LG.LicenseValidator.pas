@@ -16,6 +16,7 @@ interface
 
 uses
   System.SysUtils, System.Classes, System.Zip, System.IOUtils, System.JSON,
+  System.TypInfo, System.StrUtils,
   LG.LicenseData, LG.Encryption, LG.HardwareInfo;
 
 type
