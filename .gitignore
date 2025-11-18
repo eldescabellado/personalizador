@@ -1,0 +1,60 @@
+# Delphi compiled files
+*.dcu
+*.exe
+*.dll
+*.bpl
+*.bpi
+*.dcp
+*.so
+*.apk
+*.drc
+*.map
+*.dres
+*.rsm
+*.tds
+*.dsk
+*.local
+
+# Delphi build folders
+__history/
+__recovery/
+Win32/
+Win64/
+OSX32/
+OSX64/
+Android/
+Debug/
+Release/
+
+# Delphi project options
+*.identcache
+*.projdata
+*.stat
+*.dproj.local
+
+# IDE files
+*.~*
+*.ddp
+
+# LicenseGuard specific
+data/*.json
+output/*.zip
+output/*.sis
+*.cfg
+*.ini
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Keep directory structure
+!.gitkeep
