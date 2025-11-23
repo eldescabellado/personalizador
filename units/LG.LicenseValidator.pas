@@ -1,22 +1,44 @@
 unit LG.LicenseValidator;
 
 {
-  LicenseGuard - License Validator
-  Validates and loads license files in client applications
+  LicenseGuard - License Validator (Simplified)
+  Validates license files in client applications
 
-  INTEGRATION GUIDE:
-  1. Include this unit and dependent units in your application
-  2. Create a TLicenseValidator instance with your master key
-  3. Call LoadLicenseFromZip with the path to the license ZIP file
-  4. Check the validation result
-  5. Access license data through the LicenseData property
+  USO SIMPLE EN APLICACIONES CLIENTE:
+  =====================================
+
+  1. Agregar unidades al proyecto:
+     - LG.LicenseValidator
+     - LG.LicenseData
+     - LG.Encryption
+     - LG.HardwareInfo (si usa vinculación de hardware)
+
+  2. Código mínimo de integración:
+
+     var
+       Validator: TLicenseValidator;
+     begin
+       Validator := TLicenseValidator.Create('TU-MASTER-KEY');
+       try
+         if Validator.LoadLicense('ruta/al/archivo.lic') then
+         begin
+           if Validator.IsValid then
+             // Licencia válida, continuar
+           else
+             ShowMessage('Licencia inválida: ' + Validator.ErrorMessage);
+         end
+         else
+           ShowMessage('No se pudo cargar la licencia');
+       finally
+         Validator.Free;
+       end;
+     end;
 }
 
 interface
 
 uses
-  System.SysUtils, System.Classes, System.Zip, System.IOUtils, System.JSON,
-  System.TypInfo, System.StrUtils,
+  System.SysUtils, System.Classes, System.IOUtils, System.JSON,
   LG.LicenseData, LG.Encryption, LG.HardwareInfo;
 
 type
@@ -24,47 +46,58 @@ type
   private
     FMasterKey: string;
     FLicenseData: TLicenseData;
-    FControlFileHash: string;
     FApplicationVersion: string;
-    FValidationResult: TValidationResult;
+    FApplicationName: string;
+    FIsValid: Boolean;
+    FIsLoaded: Boolean;
+    FErrorMessage: string;
+    FWarningMessage: string;
 
-    function ExtractLicenseFromZip(const AZipPath: string): string;
-    function ValidateControlFile: Boolean;
-    function ValidateVersion: Boolean;
-    function ValidateExpiration: Boolean;
-    function ValidateHardware: Boolean;
-    function ValidateDistributor: Boolean;
+    function ValidateInternal: Boolean;
   public
     constructor Create(const AMasterKey: string);
     destructor Destroy; override;
 
-    // Load and validate license from ZIP file
-    function LoadLicenseFromZip(const AZipPath: string;
-      const AControlFilePath: string): TValidationResult;
+    // Cargar licencia desde archivo
+    function LoadLicense(const ALicensePath: string): Boolean;
 
-    // Load and validate license from SIS file directly
-    function LoadLicenseFromSIS(const ASISPath: string;
-      const AControlFilePath: string): TValidationResult;
+    // Cargar licencia desde contenido encriptado
+    function LoadLicenseFromContent(const AEncryptedContent: string): Boolean;
 
-    // Validate current license
-    function Validate: TValidationResult;
+    // Validar licencia cargada
+    function Validate: Boolean;
 
-    // Check if license is valid for specific application
-    function IsValidForApplication(const AAppName, AAppVersion: string): Boolean;
+    // Verificar si es válida para aplicación específica
+    function IsValidFor(const AAppName: string): Boolean; overload;
+    function IsValidFor(const AAppName, AAppVersion: string): Boolean; overload;
 
-    // Get license information
+    // Obtener días restantes
+    function GetDaysRemaining: Integer;
+
+    // Obtener información de licencia como texto
     function GetLicenseInfo: string;
 
-    // Properties
-    property LicenseData: TLicenseData read FLicenseData;
+    // Propiedades de estado
+    property IsValid: Boolean read FIsValid;
+    property IsLoaded: Boolean read FIsLoaded;
+    property ErrorMessage: string read FErrorMessage;
+    property WarningMessage: string read FWarningMessage;
+
+    // Propiedades de configuración
     property ApplicationVersion: string read FApplicationVersion write FApplicationVersion;
-    property ValidationResult: TValidationResult read FValidationResult;
+    property ApplicationName: string read FApplicationName write FApplicationName;
+
+    // Acceso a datos de licencia
+    property LicenseData: TLicenseData read FLicenseData;
+
+    // Propiedades útiles directas
+    property ClientName: string read FLicenseData.ClientName;
+    property ClientCompany: string read FLicenseData.ClientCompany;
+    property LicenseType: TLicenseType read FLicenseData.LicenseType;
+    property ExpirationDate: TDateTime read FLicenseData.Expiration.ExpirationDate;
   end;
 
   ELicenseValidationError = class(Exception);
-
-const
-  LICENSE_FILE_NAME = 'license.sis';
 
 implementation
 
@@ -78,7 +111,10 @@ begin
   inherited Create;
   FMasterKey := AMasterKey;
   FLicenseData.Initialize;
-  FValidationResult := TValidationResult.Failure('No license loaded');
+  FIsValid := False;
+  FIsLoaded := False;
+  FErrorMessage := '';
+  FWarningMessage := '';
 end;
 
 destructor TLicenseValidator.Destroy;
@@ -87,286 +123,242 @@ begin
   inherited;
 end;
 
-function TLicenseValidator.ExtractLicenseFromZip(const AZipPath: string): string;
+function TLicenseValidator.LoadLicense(const ALicensePath: string): Boolean;
 var
-  ZipFile: TZipFile;
-  TempPath: string;
-  LicenseFilePath: string;
-  I: Integer;
-  Found: Boolean;
+  EncryptedContent: string;
 begin
-  Result := '';
+  FIsLoaded := False;
+  FIsValid := False;
+  FErrorMessage := '';
+  FWarningMessage := '';
 
-  if not TFile.Exists(AZipPath) then
-    raise ELicenseValidationError.CreateFmt('License file not found: %s', [AZipPath]);
-
-  // Create temporary directory
-  TempPath := TPath.Combine(TPath.GetTempPath, 'LG_Validate_' + TLGEncryption.GenerateUniqueID);
-  TDirectory.CreateDirectory(TempPath);
-
-  ZipFile := TZipFile.Create;
-  try
-    ZipFile.Open(AZipPath, zmRead);
-
-    // Find license.sis in ZIP
-    Found := False;
-    for I := 0 to ZipFile.FileCount - 1 do
-    begin
-      if SameText(ZipFile.FileNames[I], LICENSE_FILE_NAME) or
-         SameText(TPath.GetFileName(ZipFile.FileNames[I]), LICENSE_FILE_NAME) then
-      begin
-        ZipFile.Extract(ZipFile.FileNames[I], TempPath);
-        LicenseFilePath := TPath.Combine(TempPath, LICENSE_FILE_NAME);
-        Found := True;
-        Break;
-      end;
-    end;
-
-    ZipFile.Close;
-
-    if not Found then
-      raise ELicenseValidationError.Create('License file not found in ZIP archive');
-
-    // Read license content
-    Result := TFile.ReadAllText(LicenseFilePath, TEncoding.UTF8);
-
-    // Clean up
-    if TDirectory.Exists(TempPath) then
-      TDirectory.Delete(TempPath, True);
-  finally
-    ZipFile.Free;
+  // Verificar que el archivo existe
+  if not TFile.Exists(ALicensePath) then
+  begin
+    FErrorMessage := 'Archivo de licencia no encontrado: ' + ALicensePath;
+    Result := False;
+    Exit;
   end;
-end;
 
-function TLicenseValidator.LoadLicenseFromZip(const AZipPath: string;
-  const AControlFilePath: string): TValidationResult;
-var
-  EncryptedLicense: string;
-begin
   try
-    // Extract license from ZIP
-    EncryptedLicense := ExtractLicenseFromZip(AZipPath);
-
-    // Load from encrypted content
-    Result := LoadLicenseFromSIS(EncryptedLicense, AControlFilePath);
+    // Leer contenido encriptado
+    EncryptedContent := TFile.ReadAllText(ALicensePath, TEncoding.UTF8);
+    Result := LoadLicenseFromContent(EncryptedContent);
   except
     on E: Exception do
-      Result := TValidationResult.Failure('Failed to load license: ' + E.Message);
+    begin
+      FErrorMessage := 'Error al leer archivo de licencia: ' + E.Message;
+      Result := False;
+    end;
   end;
-
-  FValidationResult := Result;
 end;
 
-function TLicenseValidator.LoadLicenseFromSIS(const ASISPath: string;
-  const AControlFilePath: string): TValidationResult;
+function TLicenseValidator.LoadLicenseFromContent(const AEncryptedContent: string): Boolean;
 var
-  EncryptedLicense: string;
   DecryptedLicense: string;
   LJSON: TJSONObject;
-  ControlFileHash: string;
-  Stream: TFileStream;
-  Hash: THashSHA2;
-  Bytes: TBytes;
 begin
+  FIsLoaded := False;
+  FIsValid := False;
+  FErrorMessage := '';
+
   try
-    // Read encrypted license
-    if TFile.Exists(ASISPath) then
-      EncryptedLicense := TFile.ReadAllText(ASISPath, TEncoding.UTF8)
-    else
-      EncryptedLicense := ASISPath; // Assume it's the content itself
-
-    // Decrypt license
+    // Desencriptar licencia
     try
-      DecryptedLicense := TLGEncryption.Decrypt(EncryptedLicense, FMasterKey);
+      DecryptedLicense := TLGEncryption.Decrypt(AEncryptedContent, FMasterKey);
     except
       on E: Exception do
-        Exit(TValidationResult.Failure('Failed to decrypt license: Invalid key or corrupted file'));
-    end;
-
-    // Parse JSON
-    try
-      LJSON := TJSONObject.ParseJSONValue(DecryptedLicense) as TJSONObject;
-      if not Assigned(LJSON) then
-        Exit(TValidationResult.Failure('Invalid license format'));
-
-      try
-        FLicenseData.FromJSON(LJSON);
-      finally
-        LJSON.Free;
+      begin
+        FErrorMessage := 'Error al desencriptar licencia: Clave inválida o archivo corrupto';
+        Result := False;
+        Exit;
       end;
-    except
-      on E: Exception do
-        Exit(TValidationResult.Failure('Failed to parse license: ' + E.Message));
     end;
 
-    // Verify control file if provided
-    if AControlFilePath <> '' then
+    // Parsear JSON
+    LJSON := TJSONObject.ParseJSONValue(DecryptedLicense) as TJSONObject;
+    if not Assigned(LJSON) then
     begin
-      if not TFile.Exists(AControlFilePath) then
-        Exit(TValidationResult.Failure('Control file not found'));
-
-      // Calculate control file hash
-      Stream := TFileStream.Create(AControlFilePath, fmOpenRead);
-      try
-        SetLength(Bytes, Stream.Size);
-        Stream.Read(Bytes[0], Stream.Size);
-
-        Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
-        Hash.Update(Bytes);
-        ControlFileHash := Hash.HashAsString;
-      finally
-        Stream.Free;
-      end;
-
-      // Compare with license's control file hash
-      if not SameText(ControlFileHash, FLicenseData.ControlFileHash) then
-        Exit(TValidationResult.Failure('Control file mismatch: Invalid license'));
+      FErrorMessage := 'Formato de licencia inválido';
+      Result := False;
+      Exit;
     end;
 
-    // Validate license
-    Result := Validate;
+    try
+      FLicenseData.FromJSON(LJSON);
+    finally
+      LJSON.Free;
+    end;
+
+    FIsLoaded := True;
+
+    // Validar automáticamente
+    FIsValid := ValidateInternal;
+    Result := True;
   except
     on E: Exception do
-      Result := TValidationResult.Failure('Unexpected error: ' + E.Message);
+    begin
+      FErrorMessage := 'Error al procesar licencia: ' + E.Message;
+      Result := False;
+    end;
   end;
-
-  FValidationResult := Result;
 end;
 
-function TLicenseValidator.ValidateControlFile: Boolean;
-begin
-  // Control file validation is done in LoadLicenseFromSIS
-  Result := True;
-end;
-
-function TLicenseValidator.ValidateVersion: Boolean;
-begin
-  if FApplicationVersion = '' then
-    Exit(True); // No version specified, skip validation
-
-  Result := FLicenseData.VersionTolerance.IsVersionAllowed(FApplicationVersion);
-end;
-
-function TLicenseValidator.ValidateExpiration: Boolean;
-begin
-  Result := not FLicenseData.Expiration.IsExpired;
-end;
-
-function TLicenseValidator.ValidateHardware: Boolean;
+function TLicenseValidator.ValidateInternal: Boolean;
 var
   CurrentHardwareID: string;
 begin
-  if not FLicenseData.HardwareBinding.Enabled then
-    Exit(True);
+  Result := False;
+  FErrorMessage := '';
+  FWarningMessage := '';
 
-  CurrentHardwareID := THardwareInfo.GetHardwareID(FLicenseData.HardwareBinding.BindingType);
-
-  Result := SameText(CurrentHardwareID, FLicenseData.HardwareBinding.HardwareID);
-end;
-
-function TLicenseValidator.ValidateDistributor: Boolean;
-begin
-  // Basic validation - check if distributor serial is not empty
-  Result := FLicenseData.DistributorSerial <> '';
-end;
-
-function TLicenseValidator.Validate: TValidationResult;
-begin
-  // Check version
-  if not ValidateVersion then
-    Exit(TValidationResult.Failure(
-      Format('Application version %s is not allowed by this license', [FApplicationVersion])));
-
-  // Check expiration
-  if not ValidateExpiration then
-    Exit(TValidationResult.Failure(
-      Format('License expired on %s', [DateToStr(FLicenseData.Expiration.ExpirationDate)])));
-
-  // Check hardware binding
-  if not ValidateHardware then
-    Exit(TValidationResult.Failure('Hardware mismatch: License is bound to different hardware'));
-
-  // Check distributor
-  if not ValidateDistributor then
-    Exit(TValidationResult.Failure('Invalid distributor information'));
-
-  // Check for expiration warning (within 30 days)
-  if FLicenseData.Expiration.HasExpiration then
+  if not FIsLoaded then
   begin
-    if FLicenseData.Expiration.DaysUntilExpiration <= 30 then
+    FErrorMessage := 'No hay licencia cargada';
+    Exit;
+  end;
+
+  // Verificar aplicación si está especificada
+  if (FApplicationName <> '') and (not SameText(FApplicationName, FLicenseData.ApplicationName)) then
+  begin
+    FErrorMessage := Format('Licencia no válida para esta aplicación. ' +
+      'Esperado: %s, Encontrado: %s', [FApplicationName, FLicenseData.ApplicationName]);
+    Exit;
+  end;
+
+  // Verificar versión
+  if (FApplicationVersion <> '') and (not FLicenseData.VersionTolerance.AllowAnyVersion) then
+  begin
+    if not FLicenseData.VersionTolerance.IsVersionAllowed(FApplicationVersion) then
     begin
-      Result := TValidationResult.Warning(
-        Format('License will expire in %d days', [FLicenseData.Expiration.DaysUntilExpiration]));
-      Result.IsValid := True;
-      Result.DaysUntilExpiration := FLicenseData.Expiration.DaysUntilExpiration;
+      FErrorMessage := Format('Versión %s no permitida por esta licencia', [FApplicationVersion]);
       Exit;
     end;
   end;
 
-  // All validations passed
-  Result := TValidationResult.Success;
+  // Verificar expiración
   if FLicenseData.Expiration.HasExpiration then
-    Result.DaysUntilExpiration := FLicenseData.Expiration.DaysUntilExpiration
-  else
-    Result.DaysUntilExpiration := MaxInt;
+  begin
+    if FLicenseData.Expiration.IsExpired then
+    begin
+      FErrorMessage := Format('Licencia expirada el %s',
+        [DateToStr(FLicenseData.Expiration.ExpirationDate)]);
+      Exit;
+    end;
+
+    // Advertencia si expira pronto
+    if FLicenseData.Expiration.DaysUntilExpiration <= 30 then
+    begin
+      FWarningMessage := Format('La licencia expira en %d días',
+        [FLicenseData.Expiration.DaysUntilExpiration]);
+    end;
+  end;
+
+  // Verificar vinculación de hardware
+  if FLicenseData.HardwareBinding.Enabled then
+  begin
+    CurrentHardwareID := THardwareInfo.GetHardwareID(FLicenseData.HardwareBinding.BindingType);
+
+    if not SameText(CurrentHardwareID, FLicenseData.HardwareBinding.HardwareID) then
+    begin
+      FErrorMessage := 'Licencia vinculada a otro hardware';
+      Exit;
+    end;
+  end;
+
+  // Verificar distribuidor
+  if FLicenseData.DistributorSerial = '' then
+  begin
+    FErrorMessage := 'Información de distribuidor inválida';
+    Exit;
+  end;
+
+  // Todo OK
+  Result := True;
 end;
 
-function TLicenseValidator.IsValidForApplication(const AAppName,
-  AAppVersion: string): Boolean;
+function TLicenseValidator.Validate: Boolean;
 begin
-  FApplicationVersion := AAppVersion;
+  FIsValid := ValidateInternal;
+  Result := FIsValid;
+end;
 
-  Result := (FLicenseData.ApplicationName = AAppName) and
-            Validate.IsValid;
+function TLicenseValidator.IsValidFor(const AAppName: string): Boolean;
+begin
+  FApplicationName := AAppName;
+  Result := Validate;
+end;
+
+function TLicenseValidator.IsValidFor(const AAppName, AAppVersion: string): Boolean;
+begin
+  FApplicationName := AAppName;
+  FApplicationVersion := AAppVersion;
+  Result := Validate;
+end;
+
+function TLicenseValidator.GetDaysRemaining: Integer;
+begin
+  if not FIsLoaded then
+    Result := 0
+  else if not FLicenseData.Expiration.HasExpiration then
+    Result := MaxInt // Sin expiración
+  else
+    Result := FLicenseData.Expiration.DaysUntilExpiration;
 end;
 
 function TLicenseValidator.GetLicenseInfo: string;
 var
   LicenseTypeStr: string;
   ExpiresStr: string;
-  HardwareBindingStr: string;
+  HardwareStr: string;
   StatusStr: string;
 begin
-  // Determinar tipo de licencia
-  case FLicenseData.LicenseType of
-    ltFull: LicenseTypeStr := 'Full';
-    ltDemo: LicenseTypeStr := 'Demo';
-    ltTrial: LicenseTypeStr := 'Trial';
-  else
-    LicenseTypeStr := 'Unknown';
+  if not FIsLoaded then
+  begin
+    Result := 'No hay licencia cargada';
+    Exit;
   end;
 
-  // Determinar fecha de expiración
+  // Tipo de licencia
+  case FLicenseData.LicenseType of
+    ltFull: LicenseTypeStr := 'Completa';
+    ltDemo: LicenseTypeStr := 'Demo';
+    ltTrial: LicenseTypeStr := 'Prueba';
+  else
+    LicenseTypeStr := 'Desconocido';
+  end;
+
+  // Expiración
   if FLicenseData.Expiration.HasExpiration then
-    ExpiresStr := DateToStr(FLicenseData.Expiration.ExpirationDate)
+    ExpiresStr := DateToStr(FLicenseData.Expiration.ExpirationDate) +
+      Format(' (%d días restantes)', [GetDaysRemaining])
   else
-    ExpiresStr := 'Never';
+    ExpiresStr := 'Sin expiración';
 
-  // Determinar vinculación de hardware
+  // Hardware
   if FLicenseData.HardwareBinding.Enabled then
-    HardwareBindingStr := FLicenseData.HardwareBinding.BindingType
+    HardwareStr := FLicenseData.HardwareBinding.BindingType
   else
-    HardwareBindingStr := 'None';
+    HardwareStr := 'Sin vinculación';
 
-  // Determinar estado
-  if FValidationResult.IsValid then
-    StatusStr := 'VALID'
+  // Estado
+  if FIsValid then
+    StatusStr := 'VÁLIDA'
   else
-    StatusStr := 'INVALID';
+    StatusStr := 'INVÁLIDA - ' + FErrorMessage;
 
   Result := Format(
-    'License Information:' + sLineBreak +
-    '===================' + sLineBreak +
-    'License Serial: %s' + sLineBreak +
-    'License Type: %s' + sLineBreak +
-    'Client: %s' + sLineBreak +
-    'Company: %s' + sLineBreak +
-    'Application: %s' + sLineBreak +
-    'Distributor: %s (%s)' + sLineBreak +
-    'Created: %s' + sLineBreak +
-    'Expires: %s' + sLineBreak +
-    'Hardware Binding: %s' + sLineBreak +
-    'Status: %s',
+    'Información de Licencia' + sLineBreak +
+    '======================' + sLineBreak +
+    'Serial: %s' + sLineBreak +
+    'Tipo: %s' + sLineBreak +
+    'Cliente: %s' + sLineBreak +
+    'Empresa: %s' + sLineBreak +
+    'Aplicación: %s' + sLineBreak +
+    'Distribuidor: %s' + sLineBreak +
+    'Expira: %s' + sLineBreak +
+    'Hardware: %s' + sLineBreak +
+    'Estado: %s',
     [
       FLicenseData.LicenseSerial,
       LicenseTypeStr,
@@ -374,10 +366,8 @@ begin
       FLicenseData.ClientCompany,
       FLicenseData.ApplicationName,
       FLicenseData.DistributorName,
-      FLicenseData.DistributorSerial,
-      DateTimeToStr(FLicenseData.CreatedDate),
       ExpiresStr,
-      HardwareBindingStr,
+      HardwareStr,
       StatusStr
     ]);
 end;

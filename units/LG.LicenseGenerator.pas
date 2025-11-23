@@ -1,14 +1,19 @@
 unit LG.LicenseGenerator;
 
 {
-  LicenseGuard - License Generator
-  Generates encrypted license files (.sis) and packages them in ZIP containers
+  LicenseGuard - License Generator (Simplified)
+  Generates encrypted license files (.lic) directly
+
+  SIMPLIFICADO:
+  - Genera un único archivo .lic encriptado
+  - No requiere ZIP ni archivo de control separado
+  - Todo lo necesario está en el archivo de licencia
 }
 
 interface
 
 uses
-  System.SysUtils, System.Classes, System.Zip, System.IOUtils,
+  System.SysUtils, System.Classes, System.IOUtils,
   LG.LicenseData, LG.Encryption;
 
 type
@@ -16,39 +21,25 @@ type
   private
     FMasterKey: string;
     FOutputPath: string;
-    FControlFileHash: string;
-
-    function GetControlFilePath: string;
-    procedure GenerateControlFile;
-    function CalculateControlFileHash: string;
+    FLicenseExtension: string;
   public
     constructor Create(const AMasterKey: string);
 
-    // Generate license file
+    // Generar archivo de licencia
     function GenerateLicense(var ALicenseData: TLicenseData;
-      const ACompanyName: string): string;
+      const AFileName: string): string;
 
-    // Generate control file (premium.sis)
-    procedure CreateControlFile(const AOutputPath: string);
-
-    // Verify control file
-    function VerifyControlFile(const AFilePath: string): Boolean;
-
-    // Generate demo license
+    // Generar licencia demo
     function GenerateDemoLicense(const AClientName, AAppName: string;
       ADays: Integer): string;
 
-    // Properties
+    // Propiedades
     property OutputPath: string read FOutputPath write FOutputPath;
-    property ControlFileHash: string read FControlFileHash;
+    property LicenseExtension: string read FLicenseExtension write FLicenseExtension;
+    property MasterKey: string read FMasterKey;
   end;
 
   ELicenseGeneratorError = class(Exception);
-
-const
-  LICENSE_FILE_NAME = 'license.sis';
-  CONTROL_FILE_NAME = 'premium.sis';
-  CONTROL_FILE_MAGIC = 'LICENSEGUARD-CONTROL-FILE-V1.0';
 
 implementation
 
@@ -61,182 +52,63 @@ constructor TLicenseGenerator.Create(const AMasterKey: string);
 begin
   inherited Create;
   FMasterKey := AMasterKey;
+  FLicenseExtension := '.lic';
   FOutputPath := TPath.Combine(TPath.GetDocumentsPath, 'LicenseGuard');
 
   if not TDirectory.Exists(FOutputPath) then
     TDirectory.CreateDirectory(FOutputPath);
 end;
 
-function TLicenseGenerator.GetControlFilePath: string;
-begin
-  Result := TPath.Combine(FOutputPath, CONTROL_FILE_NAME);
-end;
-
-procedure TLicenseGenerator.GenerateControlFile;
-var
-  ControlData: string;
-  EncryptedData: string;
-  Stream: TFileStream;
-begin
-  // Generate unique control file data
-  ControlData := Format('%s|%s|%s',
-    [CONTROL_FILE_MAGIC,
-     TLGEncryption.GenerateUniqueID,
-     DateTimeToStr(Now)]);
-
-  // Encrypt control data
-  EncryptedData := TLGEncryption.Encrypt(ControlData, FMasterKey);
-
-  // Save to file
-  Stream := TFileStream.Create(GetControlFilePath, fmCreate);
-  try
-    Stream.WriteData(EncryptedData);
-  finally
-    Stream.Free;
-  end;
-
-  // Calculate and store hash
-  FControlFileHash := CalculateControlFileHash;
-end;
-
-function TLicenseGenerator.CalculateControlFileHash: string;
-var
-  Stream: TFileStream;
-  Hash: THashSHA2;
-  Bytes: TBytes;
-begin
-  if not TFile.Exists(GetControlFilePath) then
-    raise ELicenseGeneratorError.Create('Control file does not exist');
-
-  Stream := TFileStream.Create(GetControlFilePath, fmOpenRead);
-  try
-    SetLength(Bytes, Stream.Size);
-    Stream.Read(Bytes[0], Stream.Size);
-
-    Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
-    Hash.Update(Bytes);
-    Result := Hash.HashAsString;
-  finally
-    Stream.Free;
-  end;
-end;
-
-procedure TLicenseGenerator.CreateControlFile(const AOutputPath: string);
-var
-  OldPath: string;
-begin
-  OldPath := FOutputPath;
-  try
-    FOutputPath := AOutputPath;
-    GenerateControlFile;
-  finally
-    FOutputPath := OldPath;
-  end;
-end;
-
-function TLicenseGenerator.VerifyControlFile(const AFilePath: string): Boolean;
-var
-  Stream: TFileStream;
-  Hash: THashSHA2;
-  Bytes: TBytes;
-  FileHash: string;
-begin
-  Result := False;
-
-  if not TFile.Exists(AFilePath) then
-    Exit;
-
-  try
-    Stream := TFileStream.Create(AFilePath, fmOpenRead);
-    try
-      SetLength(Bytes, Stream.Size);
-      Stream.Read(Bytes[0], Stream.Size);
-
-      Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
-      Hash.Update(Bytes);
-      FileHash := Hash.HashAsString;
-
-      Result := SameText(FileHash, FControlFileHash);
-    finally
-      Stream.Free;
-    end;
-  except
-    Result := False;
-  end;
-end;
-
 function TLicenseGenerator.GenerateLicense(var ALicenseData: TLicenseData;
-  const ACompanyName: string): string;
+  const AFileName: string): string;
 var
   LicenseJSON: string;
   EncryptedLicense: string;
-  TempPath: string;
   LicenseFilePath: string;
-  ZipFilePath: string;
-  ZipFile: TZipFile;
-  SafeCompanyName: string;
+  SafeFileName: string;
+  Hash: THashSHA2;
+  LicenseHash: string;
 begin
-  // Validate input
-  if ACompanyName.Trim.IsEmpty then
-    raise ELicenseGeneratorError.Create('Company name cannot be empty');
+  // Validar entrada
+  if Trim(AFileName) = '' then
+    raise ELicenseGeneratorError.Create('El nombre de archivo no puede estar vacío');
 
-  // Create safe company name for file system
-  SafeCompanyName := ACompanyName.Trim;
-  SafeCompanyName := SafeCompanyName.Replace(' ', '_');
-  SafeCompanyName := SafeCompanyName.Replace('\', '');
-  SafeCompanyName := SafeCompanyName.Replace('/', '');
-  SafeCompanyName := SafeCompanyName.Replace(':', '');
-  SafeCompanyName := SafeCompanyName.Replace('*', '');
-  SafeCompanyName := SafeCompanyName.Replace('?', '');
-  SafeCompanyName := SafeCompanyName.Replace('"', '');
-  SafeCompanyName := SafeCompanyName.Replace('<', '');
-  SafeCompanyName := SafeCompanyName.Replace('>', '');
-  SafeCompanyName := SafeCompanyName.Replace('|', '');
+  // Crear nombre de archivo seguro
+  SafeFileName := Trim(AFileName);
+  SafeFileName := StringReplace(SafeFileName, ' ', '_', [rfReplaceAll]);
+  SafeFileName := StringReplace(SafeFileName, '\', '', [rfReplaceAll]);
+  SafeFileName := StringReplace(SafeFileName, '/', '', [rfReplaceAll]);
+  SafeFileName := StringReplace(SafeFileName, ':', '', [rfReplaceAll]);
+  SafeFileName := StringReplace(SafeFileName, '*', '', [rfReplaceAll]);
+  SafeFileName := StringReplace(SafeFileName, '?', '', [rfReplaceAll]);
+  SafeFileName := StringReplace(SafeFileName, '"', '', [rfReplaceAll]);
+  SafeFileName := StringReplace(SafeFileName, '<', '', [rfReplaceAll]);
+  SafeFileName := StringReplace(SafeFileName, '>', '', [rfReplaceAll]);
+  SafeFileName := StringReplace(SafeFileName, '|', '', [rfReplaceAll]);
 
-  // Ensure control file exists and is up to date
-  if not TFile.Exists(GetControlFilePath) then
-    GenerateControlFile;
+  // Generar hash de verificación interno
+  Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
+  Hash.Update(ALicenseData.LicenseSerial + FMasterKey + ALicenseData.ApplicationID);
+  LicenseHash := Hash.HashAsString;
+  ALicenseData.ControlFileHash := LicenseHash;
 
-  // Update license data with control file hash
-  ALicenseData.ControlFileHash := CalculateControlFileHash;
-
-  // Convert license data to JSON
+  // Convertir datos de licencia a JSON
   LicenseJSON := ALicenseData.ToJSON.ToString;
 
-  // Encrypt license data
+  // Encriptar datos de licencia
   EncryptedLicense := TLGEncryption.Encrypt(LicenseJSON, FMasterKey);
 
-  // Create temporary directory for license file
-  TempPath := TPath.Combine(TPath.GetTempPath, 'LG_' + TLGEncryption.GenerateUniqueID);
-  TDirectory.CreateDirectory(TempPath);
-  try
-    // Save encrypted license to .sis file
-    LicenseFilePath := TPath.Combine(TempPath, LICENSE_FILE_NAME);
-    TFile.WriteAllText(LicenseFilePath, EncryptedLicense, TEncoding.UTF8);
+  // Ruta del archivo de licencia
+  LicenseFilePath := TPath.Combine(FOutputPath, SafeFileName + FLicenseExtension);
 
-    // Create ZIP file with company name
-    ZipFilePath := TPath.Combine(FOutputPath, SafeCompanyName + '.zip');
+  // Eliminar archivo existente si existe
+  if TFile.Exists(LicenseFilePath) then
+    TFile.Delete(LicenseFilePath);
 
-    // Delete existing ZIP if it exists
-    if TFile.Exists(ZipFilePath) then
-      TFile.Delete(ZipFilePath);
+  // Guardar licencia encriptada
+  TFile.WriteAllText(LicenseFilePath, EncryptedLicense, TEncoding.UTF8);
 
-    // Create new ZIP file
-    ZipFile := TZipFile.Create;
-    try
-      ZipFile.Open(ZipFilePath, zmWrite);
-      ZipFile.Add(LicenseFilePath, LICENSE_FILE_NAME);
-      ZipFile.Close;
-    finally
-      ZipFile.Free;
-    end;
-
-    Result := ZipFilePath;
-  finally
-    // Clean up temporary directory
-    if TDirectory.Exists(TempPath) then
-      TDirectory.Delete(TempPath, True);
-  end;
+  Result := LicenseFilePath;
 end;
 
 function TLicenseGenerator.GenerateDemoLicense(const AClientName,
@@ -244,35 +116,35 @@ function TLicenseGenerator.GenerateDemoLicense(const AClientName,
 var
   LicenseData: TLicenseData;
 begin
-  // Initialize license data
+  // Inicializar datos de licencia
   LicenseData.Initialize;
   try
-    // Set demo parameters
+    // Configurar parámetros demo
     LicenseData.LicenseType := ltDemo;
     LicenseData.ClientName := AClientName;
     LicenseData.ClientCompany := AClientName;
     LicenseData.ApplicationName := AAppName;
     LicenseData.ApplicationID := TLGEncryption.HashSHA256(AAppName);
 
-    // Set expiration
+    // Configurar expiración
     LicenseData.Expiration.HasExpiration := True;
     LicenseData.Expiration.ExpirationDate := IncDay(Now, ADays);
     LicenseData.Expiration.GracePeriodDays := 0;
 
-    // Allow any version for demo
+    // Permitir cualquier versión para demo
     LicenseData.VersionTolerance.AllowAnyVersion := True;
 
-    // No hardware binding for demo
+    // Sin vinculación de hardware para demo
     LicenseData.HardwareBinding.Enabled := False;
 
-    // Set distributor info
+    // Información de distribuidor
     LicenseData.DistributorName := 'DEMO';
     LicenseData.DistributorSerial := 'DEMO-0000-0000-0000';
 
-    // Add demo note
-    LicenseData.Notes := Format('Demo license valid for %d days', [ADays]);
+    // Nota demo
+    LicenseData.Notes := Format('Licencia demo válida por %d días', [ADays]);
 
-    // Generate license
+    // Generar licencia
     Result := GenerateLicense(LicenseData, AClientName + '_DEMO');
   finally
     LicenseData.Free;

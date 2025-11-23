@@ -451,11 +451,28 @@ begin
     LicRecord.LicenseSerial := LicenseData.LicenseSerial;
     LicRecord.ClientName := LicenseData.ClientName;
     LicRecord.ClientCompany := LicenseData.ClientCompany;
+    LicRecord.ContactEmail := '';
     LicRecord.ApplicationName := LicenseData.ApplicationName;
+    LicRecord.ApplicationVersion := App.CurrentVersion;
     LicRecord.DistributorName := LicenseData.DistributorName;
+    LicRecord.DistributorSerial := LicenseData.DistributorSerial;
     LicRecord.CreatedDate := Now;
     LicRecord.ExpirationDate := LicenseData.Expiration.ExpirationDate;
     LicRecord.LicenseType := ltFull;
+    // Convertir string a enum
+    if SameText(LicenseData.HardwareBinding.BindingType, 'MAC') then
+      LicRecord.HardwareBindingType := hbtMAC
+    else if SameText(LicenseData.HardwareBinding.BindingType, 'CPU') then
+      LicRecord.HardwareBindingType := hbtCPU
+    else if SameText(LicenseData.HardwareBinding.BindingType, 'Disk') then
+      LicRecord.HardwareBindingType := hbtDisk
+    else if SameText(LicenseData.HardwareBinding.BindingType, 'Combined') then
+      LicRecord.HardwareBindingType := hbtCombined
+    else
+      LicRecord.HardwareBindingType := hbtNone;
+    LicRecord.HardwareID := LicenseData.HardwareBinding.HardwareID;
+    LicRecord.DemoExpiresDate := 0;
+    LicRecord.ControlFileHash := LicenseData.ControlFileHash;
     LicRecord.FilePath := OutputPath;
 
     FDataManager.AddLicenseRecord(LicRecord);
