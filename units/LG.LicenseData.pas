@@ -3,12 +3,15 @@ unit LG.LicenseData;
 {
   LicenseGuard - License Data Management
   Defines all data structures for license management
+
+  UPDATED: Added File Verification support
 }
 
 interface
 
 uses
-  System.SysUtils, System.Classes, System.Generics.Collections, System.JSON;
+  System.SysUtils, System.Classes, System.Generics.Collections, System.JSON,
+  LG.FileVerification;
 
 type
   // License type enumeration
@@ -100,6 +103,9 @@ type
 
     // Control file association
     ControlFileHash: string; // SHA-256 hash of premium.sis
+
+    // NEW: File verification
+    FileVerification: TFileVerificationInfo;
 
     // Additional metadata
     Notes: string;
@@ -307,6 +313,9 @@ begin
   HardwareBinding.Enabled := False;
   HardwareBinding.HardwareID := '';
   HardwareBinding.BindingType := '';
+
+  // Initialize file verification
+  FileVerification := TFileVerificationInfo.Empty;
 end;
 
 procedure TLicenseData.Free;
@@ -351,6 +360,9 @@ begin
   // Control file
   Result.AddPair('ControlFileHash', ControlFileHash);
 
+  // File verification
+  Result.AddPair('FileVerification', FileVerification.ToJSON);
+
   // Metadata
   Result.AddPair('Notes', Notes);
 
@@ -366,6 +378,7 @@ procedure TLicenseData.FromJSON(AJSON: TJSONObject);
 var
   CustomFieldsObj: TJSONObject;
   Pair: TJSONPair;
+  FileVerifObj: TJSONValue;
 begin
   // Basic info
   LicenseSerial := AJSON.GetValue<string>('LicenseSerial');
@@ -395,6 +408,13 @@ begin
 
   // Control file
   ControlFileHash := AJSON.GetValue<string>('ControlFileHash');
+
+  // File verification
+  FileVerifObj := AJSON.GetValue('FileVerification');
+  if Assigned(FileVerifObj) and (FileVerifObj is TJSONObject) then
+    FileVerification.FromJSON(TJSONObject(FileVerifObj))
+  else
+    FileVerification := TFileVerificationInfo.Empty;
 
   // Metadata
   Notes := AJSON.GetValue<string>('Notes');

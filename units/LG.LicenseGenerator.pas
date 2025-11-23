@@ -3,13 +3,15 @@ unit LG.LicenseGenerator;
 {
   LicenseGuard - License Generator
   Generates encrypted license files (.sis) and packages them in ZIP containers
+
+  UPDATED: Added File Verification support
 }
 
 interface
 
 uses
   System.SysUtils, System.Classes, System.Zip, System.IOUtils,
-  LG.LicenseData, LG.Encryption;
+  LG.LicenseData, LG.Encryption, LG.FileVerification;
 
 type
   TLicenseGenerator = class
@@ -37,6 +39,10 @@ type
     // Generate demo license
     function GenerateDemoLicense(const AClientName, AAppName: string;
       ADays: Integer): string;
+
+    // NEW: Set file verification for license
+    procedure SetFileVerification(var ALicenseData: TLicenseData;
+      const AFilePath: string; const ADescription: string = '');
 
     // Properties
     property OutputPath: string read FOutputPath write FOutputPath;
@@ -165,6 +171,16 @@ begin
   end;
 end;
 
+procedure TLicenseGenerator.SetFileVerification(var ALicenseData: TLicenseData;
+  const AFilePath: string; const ADescription: string = '');
+begin
+  if not FileExists(AFilePath) then
+    raise ELicenseGeneratorError.CreateFmt('Verification file not found: %s', [AFilePath]);
+
+  ALicenseData.FileVerification := TFileVerificationHelper.GetFileInfo(AFilePath);
+  ALicenseData.FileVerification.Description := ADescription;
+end;
+
 function TLicenseGenerator.GenerateLicense(var ALicenseData: TLicenseData;
   const ACompanyName: string): string;
 var
@@ -264,6 +280,9 @@ begin
 
     // No hardware binding for demo
     LicenseData.HardwareBinding.Enabled := False;
+
+    // No file verification for demo
+    LicenseData.FileVerification := TFileVerificationInfo.Empty;
 
     // Set distributor info
     LicenseData.DistributorName := 'DEMO';

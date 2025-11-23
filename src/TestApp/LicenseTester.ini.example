@@ -1,0 +1,29 @@
+[Application]
+; Nombre de la aplicación por defecto
+DefaultAppName=Test Application
+; Versión de la aplicación por defecto
+DefaultAppVersion=1.0.0
+
+[Paths]
+; Directorio por defecto para buscar licencias
+DefaultLicenseDir=C:\Users\SISTEMA\Desktop\LICENCIAS GENERADAS
+; Última licencia cargada
+LastLicensePath=
+
+[UI]
+; Mostrar información de hardware al iniciar
+ShowHardwareOnStartup=1
+; Recordar última licencia cargada
+RememberLastLicense=1
+
+[Testing]
+; Características personalizadas para pruebas rápidas (separadas por coma)
+QuickTestFeatures=BasicFeatures,FullFeatures,AdvancedReports,ExportData,APIAccess
+
+[Debug]
+; Modo de depuración (muestra información adicional)
+DebugMode=0
+; Guardar log de validaciones
+SaveValidationLog=0
+; Ruta del archivo de log
+LogFilePath=LicenseTester.log

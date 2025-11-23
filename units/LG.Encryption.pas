@@ -9,10 +9,12 @@ unit LG.Encryption;
   - For production, consider using DCPcrypt or System.Crypto (Delphi 11+)
 
   This implementation uses:
-  - AES-256 in CBC mode
+  - AES-256 in CBC mode (simplified XOR for demo)
   - PBKDF2 for key derivation from master password
   - Random IV for each encryption
   - Random Salt for key derivation
+
+  VERSION: 1.1.0 - Fixed encoding issues in Decrypt method
 }
 
 interface
@@ -42,6 +44,9 @@ type
     class function DeriveKey(const Password: string; const Salt: TBytes): TBytes;
     class function HashSHA256(const Data: string): string;
     class function GenerateUniqueID: string;
+
+    // NEW: Validation helper
+    class function IsValidBase64(const Text: string): Boolean;
   end;
 
   EEncryptionError = class(Exception);
@@ -220,7 +225,10 @@ begin
   }
 
   if Length(Data) < IV_SIZE then
-    raise EEncryptionError.Create('Invalid encrypted data');
+    raise EEncryptionError.Create('Invalid encrypted data: too short');
+
+  if (Length(Data) - IV_SIZE) mod 16 <> 0 then
+    raise EEncryptionError.Create('Invalid encrypted data: incorrect block size');
 
   // Extract IV
   SetLength(IV, IV_SIZE);
@@ -252,7 +260,15 @@ begin
   begin
     Padding := Result[Length(Result) - 1];
     if (Padding > 0) and (Padding <= 16) then
+    begin
+      // Validate padding
+      for I := Length(Result) - Integer(Padding) to Length(Result) - 1 do
+      begin
+        if Result[I] <> Padding then
+          raise EEncryptionError.Create('Invalid padding detected - possible wrong key or corrupted data');
+      end;
       SetLength(Result, Length(Result) - Padding);
+    end;
   end;
 end;
 
@@ -262,6 +278,12 @@ var
   Output: TMemoryStream;
   Base64: TBase64Encoding;
 begin
+  if PlainText = '' then
+    raise EEncryptionError.Create('PlainText cannot be empty');
+
+  if MasterKey = '' then
+    raise EEncryptionError.Create('MasterKey cannot be empty');
+
   // Generate random salt
   Salt := GenerateSalt;
 
@@ -300,17 +322,36 @@ class function TLGEncryption.Decrypt(const EncryptedText, MasterKey: string): st
 var
   EncryptedBytes, Salt, Key, CipherData, DecryptedBytes: TBytes;
   Base64: TBase64Encoding;
+  TempStr: string;
+  I: Integer;
+  AllValid: Boolean;
 begin
+  if EncryptedText = '' then
+    raise EEncryptionError.Create('EncryptedText cannot be empty');
+
+  if MasterKey = '' then
+    raise EEncryptionError.Create('MasterKey cannot be empty');
+
+  // Validate Base64 format
+  if not IsValidBase64(EncryptedText) then
+    raise EEncryptionError.Create('Invalid Base64 format in encrypted data');
+
   // Decode from Base64
   Base64 := TBase64Encoding.Create(0);
   try
-    EncryptedBytes := Base64.DecodeStringToBytes(EncryptedText);
+    try
+      EncryptedBytes := Base64.DecodeStringToBytes(EncryptedText);
+    except
+      on E: Exception do
+        raise EEncryptionError.Create('Failed to decode Base64: ' + E.Message);
+    end;
   finally
     Base64.Free;
   end;
 
   if Length(EncryptedBytes) < SALT_SIZE then
-    raise EEncryptionError.Create('Invalid encrypted data format');
+    raise EEncryptionError.CreateFmt('Invalid encrypted data format: expected at least %d bytes, got %d',
+      [SALT_SIZE, Length(EncryptedBytes)]);
 
   // Extract salt
   SetLength(Salt, SALT_SIZE);
@@ -318,16 +359,86 @@ begin
 
   // Extract cipher data
   SetLength(CipherData, Length(EncryptedBytes) - SALT_SIZE);
-  Move(EncryptedBytes[SALT_SIZE], CipherData[0], Length(CipherData));
+  if Length(CipherData) > 0 then
+    Move(EncryptedBytes[SALT_SIZE], CipherData[0], Length(CipherData));
 
   // Derive key
-  Key := DeriveKey(MasterKey, Salt);
+  try
+    Key := DeriveKey(MasterKey, Salt);
+  except
+    on E: Exception do
+      raise EEncryptionError.Create('Failed to derive key: ' + E.Message);
+  end;
 
   // Decrypt
-  DecryptedBytes := DecryptBytes(CipherData, Key);
+  try
+    DecryptedBytes := DecryptBytes(CipherData, Key);
+  except
+    on E: Exception do
+      raise EEncryptionError.Create('Decryption failed (wrong key or corrupted data): ' + E.Message);
+  end;
 
-  // Convert to string
-  Result := TEncoding.UTF8.GetString(DecryptedBytes);
+  // Convert to string with validation
+  try
+    // First, try to detect if it's valid UTF-8
+    AllValid := True;
+    for I := 0 to Length(DecryptedBytes) - 1 do
+    begin
+      // Check if byte is in printable ASCII range or valid UTF-8 continuation
+      if not ((DecryptedBytes[I] >= 32) and (DecryptedBytes[I] <= 126)) and
+         not ((DecryptedBytes[I] >= 128) and (DecryptedBytes[I] <= 255)) and
+         (DecryptedBytes[I] <> 9) and  // Tab
+         (DecryptedBytes[I] <> 10) and // LF
+         (DecryptedBytes[I] <> 13) then // CR
+      begin
+        AllValid := False;
+        Break;
+      end;
+    end;
+
+    if not AllValid then
+      raise EEncryptionError.Create('Decrypted data contains invalid characters - wrong master key?');
+
+    Result := TEncoding.UTF8.GetString(DecryptedBytes);
+
+    // Validate that the result looks like JSON (basic check)
+    TempStr := Trim(Result);
+    if (TempStr = '') or not ((TempStr[1] = '{') or (TempStr[1] = '[')) then
+      raise EEncryptionError.Create('Decrypted data is not valid JSON format - wrong master key?');
+
+  except
+    on E: EEncodingError do
+      raise EEncryptionError.Create('Failed to decode decrypted data as UTF-8 - wrong master key or corrupted data');
+    on E: EEncryptionError do
+      raise;
+    on E: Exception do
+      raise EEncryptionError.Create('Unexpected error converting decrypted data: ' + E.Message);
+  end;
+end;
+
+class function TLGEncryption.IsValidBase64(const Text: string): Boolean;
+const
+  Base64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+var
+  I: Integer;
+begin
+  Result := False;
+
+  if Text = '' then
+    Exit;
+
+  // Check if all characters are valid Base64
+  for I := 1 to Length(Text) do
+  begin
+    if Pos(Text[I], Base64Chars) = 0 then
+      Exit;
+  end;
+
+  // Check length is multiple of 4
+  if Length(Text) mod 4 <> 0 then
+    Exit;
+
+  Result := True;
 end;
 
 class function TLGEncryption.HashSHA256(const Data: string): string;

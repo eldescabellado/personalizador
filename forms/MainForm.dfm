@@ -2,7 +2,7 @@ object FormMain: TFormMain
   Left = 0
   Top = 0
   Caption = 'LicenseGuard - License Management System'
-  ClientHeight = 600
+  ClientHeight = 650
   ClientWidth = 900
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -20,8 +20,8 @@ object FormMain: TFormMain
     Left = 0
     Top = 0
     Width = 900
-    Height = 600
-    ActivePage = TabGenerate
+    Height = 650
+    ActivePage = TabSettings
     Align = alClient
     TabOrder = 0
     object TabGenerate: TTabSheet
@@ -30,64 +30,71 @@ object FormMain: TFormMain
         Left = 3
         Top = 3
         Width = 500
-        Height = 550
+        Height = 600
         Caption = ' License Information '
         TabOrder = 0
         object Label1: TLabel
           Left = 16
           Top = 24
-          Width = 60
+          Width = 61
           Height = 13
           Caption = 'Client Name:'
         end
         object Label2: TLabel
           Left = 16
           Top = 51
-          Width = 80
+          Width = 79
           Height = 13
           Caption = 'Client Company:'
         end
         object Label3: TLabel
           Left = 16
           Top = 78
-          Width = 57
+          Width = 56
           Height = 13
           Caption = 'Application:'
         end
         object Label4: TLabel
           Left = 16
           Top = 105
-          Width = 56
+          Width = 54
           Height = 13
           Caption = 'Distributor:'
         end
         object Label5: TLabel
           Left = 16
           Top = 132
-          Width = 126
+          Width = 181
           Height = 13
           Caption = 'Allowed Versions (comma-separated):'
         end
         object Label6: TLabel
           Left = 16
           Top = 205
-          Width = 73
+          Width = 78
           Height = 13
           Caption = 'Expiration Date:'
         end
         object Label7: TLabel
           Left = 16
           Top = 265
-          Width = 62
+          Width = 65
           Height = 13
           Caption = 'Binding Type:'
         end
         object Label8: TLabel
           Left = 16
           Top = 292
-          Width = 67
+          Width = 65
           Height = 13
           Caption = 'Hardware ID:'
+        end
+        object Label19: TLabel
+          Left = 16
+          Top = 345
+          Width = 76
+          Height = 13
+          Caption = 'Verification File:'
         end
         object edtClientName: TEdit
           Left = 160
@@ -142,7 +149,7 @@ object FormMain: TFormMain
           Width = 186
           Height = 21
           Date = 44562.000000000000000000
-          Time = 0.708531724537037000
+          Time = 0.708531724536442200
           TabOrder = 6
         end
         object chkHardwareBinding: TCheckBox
@@ -185,19 +192,45 @@ object FormMain: TFormMain
           TabOrder = 10
           OnClick = btnGetHardwareIDClick
         end
+        object chkFileVerification: TCheckBox
+          Left = 16
+          Top = 320
+          Width = 140
+          Height = 17
+          Caption = 'Enable File Verification'
+          TabOrder = 11
+          OnClick = chkFileVerificationClick
+        end
+        object edtVerificationFile: TEdit
+          Left = 16
+          Top = 364
+          Width = 379
+          Height = 21
+          ReadOnly = True
+          TabOrder = 12
+        end
+        object btnBrowseVerificationFile: TButton
+          Left = 401
+          Top = 362
+          Width = 72
+          Height = 25
+          Caption = 'Browse...'
+          TabOrder = 13
+          OnClick = btnBrowseVerificationFileClick
+        end
         object memoNotes: TMemo
           Left = 16
-          Top = 325
+          Top = 395
           Width = 457
           Height = 89
           Lines.Strings = (
             '')
           ScrollBars = ssVertical
-          TabOrder = 11
+          TabOrder = 14
         end
         object btnGenerateLicense: TButton
           Left = 16
-          Top = 430
+          Top = 500
           Width = 200
           Height = 40
           Caption = 'Generate Full License'
@@ -207,16 +240,16 @@ object FormMain: TFormMain
           Font.Name = 'Tahoma'
           Font.Style = [fsBold]
           ParentFont = False
-          TabOrder = 12
+          TabOrder = 15
           OnClick = btnGenerateLicenseClick
         end
         object btnGenerateDemo: TButton
           Left = 273
-          Top = 430
+          Top = 500
           Width = 200
           Height = 40
           Caption = 'Generate Demo License'
-          TabOrder = 13
+          TabOrder = 16
           OnClick = btnGenerateDemoClick
         end
       end
@@ -224,14 +257,14 @@ object FormMain: TFormMain
         Left = 509
         Top = 3
         Width = 375
-        Height = 550
+        Height = 600
         Caption = ' Generated License Info '
         TabOrder = 1
         object memoLicenseInfo: TMemo
           Left = 10
           Top = 20
           Width = 355
-          Height = 520
+          Height = 570
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
@@ -264,14 +297,14 @@ object FormMain: TFormMain
         object Label10: TLabel
           Left = 16
           Top = 51
-          Width = 60
+          Width = 57
           Height = 13
           Caption = 'Description:'
         end
         object Label11: TLabel
           Left = 16
           Top = 105
-          Width = 41
+          Width = 39
           Height = 13
           Caption = 'Version:'
         end
@@ -328,11 +361,10 @@ object FormMain: TFormMain
         Left = 3
         Top = 209
         Width = 880
-        Height = 355
+        Height = 405
         Columns = <
           item
             Caption = 'ID'
-            Width = 50
           end
           item
             Caption = 'Name'
@@ -378,14 +410,14 @@ object FormMain: TFormMain
         object Label13: TLabel
           Left = 16
           Top = 51
-          Width = 31
+          Width = 28
           Height = 13
           Caption = 'Email:'
         end
         object Label14: TLabel
           Left = 16
           Top = 78
-          Width = 36
+          Width = 34
           Height = 13
           Caption = 'Phone:'
         end
@@ -399,7 +431,7 @@ object FormMain: TFormMain
         object Label16: TLabel
           Left = 16
           Top = 159
-          Width = 33
+          Width = 30
           Height = 13
           Caption = 'Serial:'
         end
@@ -472,11 +504,10 @@ object FormMain: TFormMain
         Left = 3
         Top = 259
         Width = 880
-        Height = 305
+        Height = 355
         Columns = <
           item
             Caption = 'ID'
-            Width = 50
           end
           item
             Caption = 'Name'
@@ -513,14 +544,14 @@ object FormMain: TFormMain
         Left = 3
         Top = 3
         Width = 880
-        Height = 560
+        Height = 610
         Caption = ' License Records '
         TabOrder = 0
         object lvLicenseHistory: TListView
           Left = 10
           Top = 20
           Width = 860
-          Height = 490
+          Height = 540
           Columns = <
             item
               Caption = 'Serial'
@@ -554,7 +585,7 @@ object FormMain: TFormMain
         end
         object btnRefreshHistory: TButton
           Left = 10
-          Top = 516
+          Top = 566
           Width = 150
           Height = 30
           Caption = 'Refresh'
@@ -563,7 +594,7 @@ object FormMain: TFormMain
         end
         object btnOpenLicenseFolder: TButton
           Left = 166
-          Top = 516
+          Top = 566
           Width = 150
           Height = 30
           Caption = 'Open License Folder'
@@ -585,14 +616,14 @@ object FormMain: TFormMain
         object Label17: TLabel
           Left = 16
           Top = 24
-          Width = 116
+          Width = 112
           Height = 13
           Caption = 'Master Encryption Key:'
         end
         object Label18: TLabel
           Left = 16
           Top = 78
-          Width = 67
+          Width = 63
           Height = 13
           Caption = 'Output Path:'
         end
@@ -601,7 +632,6 @@ object FormMain: TFormMain
           Top = 43
           Width = 560
           Height = 21
-          PasswordChar = '*'
           TabOrder = 0
         end
         object edtOutputPath: TEdit
@@ -655,5 +685,9 @@ object FormMain: TFormMain
         end
       end
     end
+  end
+  object OpenDialog1: TOpenDialog
+    Left = 824
+    Top = 8
   end
 end

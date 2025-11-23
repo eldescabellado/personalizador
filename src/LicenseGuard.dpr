@@ -13,7 +13,8 @@ uses
   LG.LicenseGenerator in '..\units\LG.LicenseGenerator.pas',
   LG.LicenseValidator in '..\units\LG.LicenseValidator.pas',
   LG.HardwareInfo in '..\units\LG.HardwareInfo.pas',
-  LG.DataManager in '..\units\LG.DataManager.pas';
+  LG.DataManager in '..\units\LG.DataManager.pas',
+  LG.FileVerification in '..\units\LG.FileVerification.pas';
 
 {$R *.res}
 

@@ -1,4 +1,4 @@
-unit LG.LicenseValidator;
+﻿unit LG.LicenseValidator;
 
 {
   LicenseGuard - License Validator
@@ -10,6 +10,8 @@ unit LG.LicenseValidator;
   3. Call LoadLicenseFromZip with the path to the license ZIP file
   4. Check the validation result
   5. Access license data through the LicenseData property
+
+  VERSION: 1.1.0 - Fixed file reading and encoding issues
 }
 
 interface
@@ -34,6 +36,9 @@ type
     function ValidateExpiration: Boolean;
     function ValidateHardware: Boolean;
     function ValidateDistributor: Boolean;
+
+    // NEW: Helper to read license file safely
+    function ReadLicenseFileSafe(const AFilePath: string): string;
   public
     constructor Create(const AMasterKey: string);
     destructor Destroy; override;
@@ -87,6 +92,71 @@ begin
   inherited;
 end;
 
+function TLicenseValidator.ReadLicenseFileSafe(const AFilePath: string): string;
+var
+  FileBytes: TBytes;
+  FileStream: TFileStream;
+  I: Integer;
+  IsBase64: Boolean;
+begin
+  if not TFile.Exists(AFilePath) then
+    raise ELicenseValidationError.CreateFmt('License file not found: %s', [AFilePath]);
+
+  try
+    // Read file as raw bytes
+    FileStream := TFileStream.Create(AFilePath, fmOpenRead or fmShareDenyWrite);
+    try
+      SetLength(FileBytes, FileStream.Size);
+      if FileStream.Size > 0 then
+        FileStream.ReadBuffer(FileBytes[0], FileStream.Size);
+    finally
+      FileStream.Free;
+    end;
+
+    // Check if it's valid Base64 (should only contain Base64 characters)
+    IsBase64 := True;
+    for I := 0 to Length(FileBytes) - 1 do
+    begin
+      // Base64 chars: A-Z, a-z, 0-9, +, /, =, and whitespace (CR, LF, space)
+      if not (
+        ((FileBytes[I] >= Ord('A')) and (FileBytes[I] <= Ord('Z'))) or
+        ((FileBytes[I] >= Ord('a')) and (FileBytes[I] <= Ord('z'))) or
+        ((FileBytes[I] >= Ord('0')) and (FileBytes[I] <= Ord('9'))) or
+        (FileBytes[I] = Ord('+')) or
+        (FileBytes[I] = Ord('/')) or
+        (FileBytes[I] = Ord('=')) or
+        (FileBytes[I] = 13) or  // CR
+        (FileBytes[I] = 10) or  // LF
+        (FileBytes[I] = 32)     // Space
+      ) then
+      begin
+        IsBase64 := False;
+        Break;
+      end;
+    end;
+
+    if not IsBase64 then
+      raise ELicenseValidationError.Create('License file is corrupted or not a valid license file');
+
+    // Convert to string using ASCII (Base64 is pure ASCII)
+    Result := TEncoding.ASCII.GetString(FileBytes);
+
+    // Remove any whitespace
+    Result := StringReplace(Result, #13, '', [rfReplaceAll]);
+    Result := StringReplace(Result, #10, '', [rfReplaceAll]);
+    Result := StringReplace(Result, ' ', '', [rfReplaceAll]);
+
+    if Result = '' then
+      raise ELicenseValidationError.Create('License file is empty');
+
+  except
+    on E: ELicenseValidationError do
+      raise;
+    on E: Exception do
+      raise ELicenseValidationError.Create('Failed to read license file: ' + E.Message);
+  end;
+end;
+
 function TLicenseValidator.ExtractLicenseFromZip(const AZipPath: string): string;
 var
   ZipFile: TZipFile;
@@ -94,11 +164,12 @@ var
   LicenseFilePath: string;
   I: Integer;
   Found: Boolean;
+  Bytes: TBytes;
 begin
   Result := '';
 
   if not TFile.Exists(AZipPath) then
-    raise ELicenseValidationError.CreateFmt('License file not found: %s', [AZipPath]);
+    raise ELicenseValidationError.CreateFmt('License ZIP file not found: %s', [AZipPath]);
 
   // Create temporary directory
   TempPath := TPath.Combine(TPath.GetTempPath, 'LG_Validate_' + TLGEncryption.GenerateUniqueID);
@@ -106,7 +177,12 @@ begin
 
   ZipFile := TZipFile.Create;
   try
-    ZipFile.Open(AZipPath, zmRead);
+    try
+      ZipFile.Open(AZipPath, zmRead);
+    except
+      on E: Exception do
+        raise ELicenseValidationError.Create('Failed to open ZIP file: ' + E.Message);
+    end;
 
     // Find license.sis in ZIP
     Found := False;
@@ -115,24 +191,34 @@ begin
       if SameText(ZipFile.FileNames[I], LICENSE_FILE_NAME) or
          SameText(TPath.GetFileName(ZipFile.FileNames[I]), LICENSE_FILE_NAME) then
       begin
-        ZipFile.Extract(ZipFile.FileNames[I], TempPath);
-        LicenseFilePath := TPath.Combine(TempPath, LICENSE_FILE_NAME);
-        Found := True;
-        Break;
+        try
+          // Extract to temp directory
+          ZipFile.Extract(ZipFile.FileNames[I], TempPath);
+          LicenseFilePath := TPath.Combine(TempPath, LICENSE_FILE_NAME);
+          Found := True;
+          Break;
+        except
+          on E: Exception do
+            raise ELicenseValidationError.Create('Failed to extract license from ZIP: ' + E.Message);
+        end;
       end;
     end;
 
     ZipFile.Close;
 
     if not Found then
-      raise ELicenseValidationError.Create('License file not found in ZIP archive');
+      raise ELicenseValidationError.Create('License file (license.sis) not found in ZIP archive');
 
-    // Read license content
-    Result := TFile.ReadAllText(LicenseFilePath, TEncoding.UTF8);
+    // Read license content safely
+    Result := ReadLicenseFileSafe(LicenseFilePath);
 
     // Clean up
-    if TDirectory.Exists(TempPath) then
-      TDirectory.Delete(TempPath, True);
+    try
+      if TDirectory.Exists(TempPath) then
+        TDirectory.Delete(TempPath, True);
+    except
+      // Ignore cleanup errors
+    end;
   finally
     ZipFile.Free;
   end;
@@ -147,9 +233,11 @@ begin
     // Extract license from ZIP
     EncryptedLicense := ExtractLicenseFromZip(AZipPath);
 
-    // Load from encrypted content
+    // Load from encrypted content (pass content, not path)
     Result := LoadLicenseFromSIS(EncryptedLicense, AControlFilePath);
   except
+    on E: ELicenseValidationError do
+      Result := TValidationResult.Failure(E.Message);
     on E: Exception do
       Result := TValidationResult.Failure('Failed to load license: ' + E.Message);
   end;
@@ -169,25 +257,37 @@ var
   Bytes: TBytes;
 begin
   try
-    // Read encrypted license
+    // Determine if ASISPath is a file path or the content itself
     if TFile.Exists(ASISPath) then
-      EncryptedLicense := TFile.ReadAllText(ASISPath, TEncoding.UTF8)
+    begin
+      // It's a file path - read it safely
+      EncryptedLicense := ReadLicenseFileSafe(ASISPath);
+    end
     else
-      EncryptedLicense := ASISPath; // Assume it's the content itself
+    begin
+      // Assume it's the encrypted content itself
+      EncryptedLicense := ASISPath;
+
+      // Validate it looks like Base64
+      if not TLGEncryption.IsValidBase64(EncryptedLicense) then
+        Exit(TValidationResult.Failure('Invalid license data format'));
+    end;
 
     // Decrypt license
     try
       DecryptedLicense := TLGEncryption.Decrypt(EncryptedLicense, FMasterKey);
     except
+      on E: EEncryptionError do
+        Exit(TValidationResult.Failure('License decryption failed: ' + E.Message));
       on E: Exception do
-        Exit(TValidationResult.Failure('Failed to decrypt license: Invalid key or corrupted file'));
+        Exit(TValidationResult.Failure('Failed to decrypt license: ' + E.Message));
     end;
 
     // Parse JSON
     try
       LJSON := TJSONObject.ParseJSONValue(DecryptedLicense) as TJSONObject;
       if not Assigned(LJSON) then
-        Exit(TValidationResult.Failure('Invalid license format'));
+        Exit(TValidationResult.Failure('Invalid license format: not valid JSON'));
 
       try
         FLicenseData.FromJSON(LJSON);
@@ -196,36 +296,44 @@ begin
       end;
     except
       on E: Exception do
-        Exit(TValidationResult.Failure('Failed to parse license: ' + E.Message));
+        Exit(TValidationResult.Failure('Failed to parse license data: ' + E.Message));
     end;
 
     // Verify control file if provided
     if AControlFilePath <> '' then
     begin
       if not TFile.Exists(AControlFilePath) then
-        Exit(TValidationResult.Failure('Control file not found'));
+        Exit(TValidationResult.Failure('Control file not found: ' + AControlFilePath));
 
-      // Calculate control file hash
-      Stream := TFileStream.Create(AControlFilePath, fmOpenRead);
       try
-        SetLength(Bytes, Stream.Size);
-        Stream.Read(Bytes[0], Stream.Size);
+        // Calculate control file hash
+        Stream := TFileStream.Create(AControlFilePath, fmOpenRead or fmShareDenyWrite);
+        try
+          SetLength(Bytes, Stream.Size);
+          if Stream.Size > 0 then
+            Stream.Read(Bytes[0], Stream.Size);
 
-        Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
-        Hash.Update(Bytes);
-        ControlFileHash := Hash.HashAsString;
-      finally
-        Stream.Free;
+          Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
+          Hash.Update(Bytes);
+          ControlFileHash := Hash.HashAsString;
+        finally
+          Stream.Free;
+        end;
+
+        // Compare with license's control file hash
+        if not SameText(ControlFileHash, FLicenseData.ControlFileHash) then
+          Exit(TValidationResult.Failure('Control file mismatch: Invalid or tampered license'));
+      except
+        on E: Exception do
+          Exit(TValidationResult.Failure('Failed to verify control file: ' + E.Message));
       end;
-
-      // Compare with license's control file hash
-      if not SameText(ControlFileHash, FLicenseData.ControlFileHash) then
-        Exit(TValidationResult.Failure('Control file mismatch: Invalid license'));
     end;
 
     // Validate license
     Result := Validate;
   except
+    on E: ELicenseValidationError do
+      Result := TValidationResult.Failure(E.Message);
     on E: Exception do
       Result := TValidationResult.Failure('Unexpected error: ' + E.Message);
   end;
