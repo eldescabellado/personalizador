@@ -33,6 +33,12 @@ unit LG.LicenseValidator;
          Validator.Free;
        end;
      end;
+
+  3. Con archivo de control (OPCIONAL):
+
+     Validator.SetControlFile('ruta/a/premium.sis');
+     if Validator.LoadLicense('license.lic') then
+       // La validación incluirá verificación del archivo de control
 }
 
 interface
@@ -52,8 +58,12 @@ type
     FIsLoaded: Boolean;
     FErrorMessage: string;
     FWarningMessage: string;
+    FControlFilePath: string;
+    FControlFileHash: string;
+    FUseControlFile: Boolean;
 
     function ValidateInternal: Boolean;
+    function ValidateControlFile: Boolean;
   public
     constructor Create(const AMasterKey: string);
     destructor Destroy; override;
@@ -63,6 +73,10 @@ type
 
     // Cargar licencia desde contenido encriptado
     function LoadLicenseFromContent(const AEncryptedContent: string): Boolean;
+
+    // Archivo de control (OPCIONAL)
+    procedure SetControlFile(const AControlFilePath: string);
+    procedure ClearControlFile;
 
     // Validar licencia cargada
     function Validate: Boolean;
@@ -86,6 +100,8 @@ type
     // Propiedades de configuración
     property ApplicationVersion: string read FApplicationVersion write FApplicationVersion;
     property ApplicationName: string read FApplicationName write FApplicationName;
+    property ControlFilePath: string read FControlFilePath;
+    property UseControlFile: Boolean read FUseControlFile;
 
     // Acceso a datos de licencia
     property LicenseData: TLicenseData read FLicenseData;
@@ -115,12 +131,68 @@ begin
   FIsLoaded := False;
   FErrorMessage := '';
   FWarningMessage := '';
+  FControlFilePath := '';
+  FControlFileHash := '';
+  FUseControlFile := False;
 end;
 
 destructor TLicenseValidator.Destroy;
 begin
   FLicenseData.Free;
   inherited;
+end;
+
+procedure TLicenseValidator.SetControlFile(const AControlFilePath: string);
+var
+  FileContent: string;
+  Hash: THashSHA2;
+  Bytes: TBytes;
+begin
+  FControlFilePath := '';
+  FControlFileHash := '';
+  FUseControlFile := False;
+
+  if not TFile.Exists(AControlFilePath) then
+    Exit;
+
+  try
+    FileContent := TFile.ReadAllText(AControlFilePath, TEncoding.UTF8);
+    Bytes := TEncoding.UTF8.GetBytes(FileContent);
+
+    Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
+    Hash.Update(Bytes);
+    FControlFileHash := Hash.HashAsString;
+
+    FControlFilePath := AControlFilePath;
+    FUseControlFile := True;
+  except
+    FControlFilePath := '';
+    FControlFileHash := '';
+    FUseControlFile := False;
+  end;
+end;
+
+procedure TLicenseValidator.ClearControlFile;
+begin
+  FControlFilePath := '';
+  FControlFileHash := '';
+  FUseControlFile := False;
+end;
+
+function TLicenseValidator.ValidateControlFile: Boolean;
+begin
+  Result := True;
+
+  // Si no se está usando archivo de control, siempre es válido
+  if not FUseControlFile then
+    Exit;
+
+  // Verificar que el hash coincida
+  if not SameText(FControlFileHash, FLicenseData.ControlFileHash) then
+  begin
+    FErrorMessage := 'Archivo de control no coincide con la licencia';
+    Result := False;
+  end;
 end;
 
 function TLicenseValidator.LoadLicense(const ALicensePath: string): Boolean;
@@ -218,6 +290,10 @@ begin
     Exit;
   end;
 
+  // Verificar archivo de control (OPCIONAL)
+  if not ValidateControlFile then
+    Exit;
+
   // Verificar aplicación si está especificada
   if (FApplicationName <> '') and (not SameText(FApplicationName, FLicenseData.ApplicationName)) then
   begin
@@ -312,6 +388,7 @@ var
   ExpiresStr: string;
   HardwareStr: string;
   StatusStr: string;
+  ControlStr: string;
 begin
   if not FIsLoaded then
   begin
@@ -341,6 +418,12 @@ begin
   else
     HardwareStr := 'Sin vinculación';
 
+  // Archivo de control
+  if FUseControlFile then
+    ControlStr := 'Sí (verificado)'
+  else
+    ControlStr := 'No';
+
   // Estado
   if FIsValid then
     StatusStr := 'VÁLIDA'
@@ -358,6 +441,7 @@ begin
     'Distribuidor: %s' + sLineBreak +
     'Expira: %s' + sLineBreak +
     'Hardware: %s' + sLineBreak +
+    'Archivo de Control: %s' + sLineBreak +
     'Estado: %s',
     [
       FLicenseData.LicenseSerial,
@@ -368,6 +452,7 @@ begin
       FLicenseData.DistributorName,
       ExpiresStr,
       HardwareStr,
+      ControlStr,
       StatusStr
     ]);
 end;

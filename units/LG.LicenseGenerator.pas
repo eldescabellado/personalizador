@@ -4,10 +4,11 @@ unit LG.LicenseGenerator;
   LicenseGuard - License Generator (Simplified)
   Generates encrypted license files (.lic) directly
 
-  SIMPLIFICADO:
+  CARACTERÍSTICAS:
   - Genera un único archivo .lic encriptado
-  - No requiere ZIP ni archivo de control separado
-  - Todo lo necesario está en el archivo de licencia
+  - Archivo de control OPCIONAL (premium.sis)
+  - Si existe archivo de control, se vincula a la licencia
+  - Si no existe, la licencia funciona independientemente
 }
 
 interface
@@ -22,6 +23,10 @@ type
     FMasterKey: string;
     FOutputPath: string;
     FLicenseExtension: string;
+    FControlFileHash: string;
+    FControlFileName: string;
+
+    function GetControlFilePath: string;
   public
     constructor Create(const AMasterKey: string);
 
@@ -33,13 +38,25 @@ type
     function GenerateDemoLicense(const AClientName, AAppName: string;
       ADays: Integer): string;
 
+    // Archivo de control (OPCIONAL)
+    function CreateControlFile: string;
+    function CreateControlFileAt(const APath: string): string;
+    function LoadControlFile(const APath: string): Boolean;
+    function ControlFileExists: Boolean;
+
     // Propiedades
     property OutputPath: string read FOutputPath write FOutputPath;
     property LicenseExtension: string read FLicenseExtension write FLicenseExtension;
     property MasterKey: string read FMasterKey;
+    property ControlFileHash: string read FControlFileHash;
+    property ControlFileName: string read FControlFileName write FControlFileName;
   end;
 
   ELicenseGeneratorError = class(Exception);
+
+const
+  DEFAULT_CONTROL_FILE_NAME = 'premium.sis';
+  CONTROL_FILE_MAGIC = 'LICENSEGUARD-CONTROL-V1';
 
 implementation
 
@@ -53,10 +70,88 @@ begin
   inherited Create;
   FMasterKey := AMasterKey;
   FLicenseExtension := '.lic';
+  FControlFileName := DEFAULT_CONTROL_FILE_NAME;
+  FControlFileHash := '';
   FOutputPath := TPath.Combine(TPath.GetDocumentsPath, 'LicenseGuard');
 
   if not TDirectory.Exists(FOutputPath) then
     TDirectory.CreateDirectory(FOutputPath);
+end;
+
+function TLicenseGenerator.GetControlFilePath: string;
+begin
+  Result := TPath.Combine(FOutputPath, FControlFileName);
+end;
+
+function TLicenseGenerator.ControlFileExists: Boolean;
+begin
+  Result := TFile.Exists(GetControlFilePath);
+end;
+
+function TLicenseGenerator.CreateControlFile: string;
+begin
+  Result := CreateControlFileAt(GetControlFilePath);
+end;
+
+function TLicenseGenerator.CreateControlFileAt(const APath: string): string;
+var
+  ControlData: string;
+  EncryptedData: string;
+  Hash: THashSHA2;
+  Bytes: TBytes;
+  DirPath: string;
+begin
+  // Asegurar que el directorio existe
+  DirPath := ExtractFilePath(APath);
+  if (DirPath <> '') and (not TDirectory.Exists(DirPath)) then
+    TDirectory.CreateDirectory(DirPath);
+
+  // Generar datos del archivo de control
+  ControlData := Format('%s|%s|%s',
+    [CONTROL_FILE_MAGIC,
+     TLGEncryption.GenerateUniqueID,
+     DateTimeToStr(Now)]);
+
+  // Encriptar datos de control
+  EncryptedData := TLGEncryption.Encrypt(ControlData, FMasterKey);
+
+  // Guardar archivo
+  TFile.WriteAllText(APath, EncryptedData, TEncoding.UTF8);
+
+  // Calcular y guardar hash
+  Bytes := TEncoding.UTF8.GetBytes(EncryptedData);
+  Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
+  Hash.Update(Bytes);
+  FControlFileHash := Hash.HashAsString;
+
+  Result := APath;
+end;
+
+function TLicenseGenerator.LoadControlFile(const APath: string): Boolean;
+var
+  FileContent: string;
+  Hash: THashSHA2;
+  Bytes: TBytes;
+begin
+  Result := False;
+  FControlFileHash := '';
+
+  if not TFile.Exists(APath) then
+    Exit;
+
+  try
+    FileContent := TFile.ReadAllText(APath, TEncoding.UTF8);
+    Bytes := TEncoding.UTF8.GetBytes(FileContent);
+
+    Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
+    Hash.Update(Bytes);
+    FControlFileHash := Hash.HashAsString;
+
+    Result := True;
+  except
+    FControlFileHash := '';
+    Result := False;
+  end;
 end;
 
 function TLicenseGenerator.GenerateLicense(var ALicenseData: TLicenseData;
@@ -86,11 +181,20 @@ begin
   SafeFileName := StringReplace(SafeFileName, '>', '', [rfReplaceAll]);
   SafeFileName := StringReplace(SafeFileName, '|', '', [rfReplaceAll]);
 
-  // Generar hash de verificación interno
-  Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
-  Hash.Update(ALicenseData.LicenseSerial + FMasterKey + ALicenseData.ApplicationID);
-  LicenseHash := Hash.HashAsString;
-  ALicenseData.ControlFileHash := LicenseHash;
+  // Determinar el hash a usar
+  if FControlFileHash <> '' then
+  begin
+    // Usar hash del archivo de control si existe
+    ALicenseData.ControlFileHash := FControlFileHash;
+  end
+  else
+  begin
+    // Generar hash interno basado en datos de la licencia
+    Hash := THashSHA2.Create(THashSHA2.TSHA2Version.SHA256);
+    Hash.Update(ALicenseData.LicenseSerial + FMasterKey + ALicenseData.ApplicationID);
+    LicenseHash := Hash.HashAsString;
+    ALicenseData.ControlFileHash := LicenseHash;
+  end;
 
   // Convertir datos de licencia a JSON
   LicenseJSON := ALicenseData.ToJSON.ToString;

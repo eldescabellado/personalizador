@@ -331,5 +331,57 @@ begin
   // Continuar con validación...
 end;
 
+--------------------------------------------------------------------------------
+EJEMPLO 6: Con Archivo de Control (OPCIONAL)
+--------------------------------------------------------------------------------
+
+{ El archivo de control (premium.sis) es OPCIONAL pero añade una capa
+  extra de seguridad. Si lo usas, la licencia debe coincidir con el
+  archivo de control para ser válida. }
+
+procedure TFormMain.FormCreate(Sender: TObject);
+const
+  MASTER_KEY = 'TU-MASTER-KEY-AQUI';
+var
+  Validator: TLicenseValidator;
+  LicensePath: string;
+  ControlPath: string;
+begin
+  LicensePath := ExtractFilePath(Application.ExeName) + 'license.lic';
+  ControlPath := ExtractFilePath(Application.ExeName) + 'premium.sis';
+
+  Validator := TLicenseValidator.Create(MASTER_KEY);
+  try
+    // Configurar archivo de control (OPCIONAL)
+    // Si el archivo existe, se usará para validación adicional
+    if TFile.Exists(ControlPath) then
+      Validator.SetControlFile(ControlPath);
+
+    // Cargar y validar licencia
+    if Validator.LoadLicense(LicensePath) then
+    begin
+      if Validator.IsValid then
+      begin
+        // Licencia válida
+        if Validator.UseControlFile then
+          Caption := 'Licencia verificada con archivo de control'
+        else
+          Caption := 'Licencia válida';
+      end
+      else
+        ShowMessage('Error: ' + Validator.ErrorMessage);
+    end;
+  finally
+    Validator.Free;
+  end;
+end;
+
+{ También puedes limpiar el archivo de control si ya no quieres usarlo }
+procedure ClearControl;
+begin
+  Validator.ClearControlFile;
+  Validator.Validate; // Re-validar sin archivo de control
+end;
+
 ================================================================================
 }
